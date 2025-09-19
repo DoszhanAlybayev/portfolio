@@ -5,6 +5,7 @@ import '../services/price_service.dart';
 import '../services/storage_service.dart';
 import '../widgets/stock_card.dart';
 import '../widgets/stat_card.dart';
+import 'package:home_widget/home_widget.dart';
 
 class PortfolioScreen extends StatefulWidget {
   const PortfolioScreen({super.key});
@@ -34,6 +35,16 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     _timer?.cancel();
     super.dispose();
   }
+  Future<void> _updateWidget() async {
+    await HomeWidget.saveWidgetData(
+      'profit', 
+      '${totalProfit.toStringAsFixed(2)} ₸'
+    );
+    await HomeWidget.updateWidget(
+      name: 'ExampleWidgetProvider',
+      androidName: 'ExampleWidgetProvider',
+    );
+  }
 
   Future<void> _loadPortfolio() async {
     final loaded = await StorageService.loadPortfolio();
@@ -57,14 +68,13 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       usdKzt = await PriceService.fetchUsdKzt();
       for (var stock in portfolio) {
         double price = await PriceService.fetchPrice(stock.url);
-        if (stock.ticker.toUpperCase() == 'TQQQ') {
-          stock.currentPrice = price * usdKzt;
-        } else {
-          stock.currentPrice = price;
-        }
+        stock.currentPrice = stock.ticker.toUpperCase() == 'TQQQ' ? price * usdKzt : price;
       }
       setState(() {});
-      _savePortfolio();
+      await _savePortfolio();
+
+      // Обновляем виджет после обновления цен
+      await _updateWidget();
     } catch (e) {
       print('Ошибка при обновлении цен: $e');
     }
@@ -76,6 +86,14 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       portfolio.fold(0, (sum, stock) => sum + stock.totalBuy);
   double get averagePercent =>
       totalBuy > 0 ? (totalProfit / totalBuy) * 100 : 0;
+
+  Future<void> updateHomeWidget(double totalProfit) async {
+    await HomeWidget.saveWidgetData('profit', '${totalProfit.toStringAsFixed(2)} ₸');
+    await HomeWidget.updateWidget(
+      name: 'ExampleWidgetProvider',
+      androidName: 'ExampleWidgetProvider',
+    );
+  }
 
   void _addStockDialog() {
     final tickerController = TextEditingController();
@@ -127,8 +145,10 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   _listKey.currentState?.insertItem(portfolio.length - 1);
                 });
                 _savePortfolio();
+                _updateWidget(); // обновляем виджет после добавления
                 Navigator.pop(ctx);
               },
+
               child: const Text("Добавить"),
             ),
           ],
@@ -196,6 +216,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   );
                 });
                 _savePortfolio();
+                _updateWidget(); 
               },
               child: const Text("Удалить"),
             ),
@@ -256,6 +277,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
 
                 setState(() {});
                 _savePortfolio();
+                _updateWidget(); 
                 Navigator.pop(ctx);
               },
               child: const Text("Сохранить"),
