@@ -11,119 +11,205 @@ class LoginPage extends StatefulWidget {
   State<LoginPage> createState() => _LoginPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMixin {
+  final _formKey = GlobalKey<FormState>();
+
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final auth = FirebaseAuth.instance;
+  bool _isLoading = false;
 
-  Future<void> signIn() async {
+  // Переменные для отображения ошибок в UI
+  String? _emailErrorText;
+  String? _passwordErrorText;
+
+  late final AnimationController _animationController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 500),
+  )..forward();
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _signIn() async {
+    // Очищаем предыдущие ошибки перед новым запросом
+    setState(() {
+      _emailErrorText = null;
+      _passwordErrorText = null;
+    });
+
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
+
     try {
       await auth.signInWithEmailAndPassword(
         email: emailController.text.trim(),
         password: passwordController.text.trim(),
       );
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Успешный вход через Email")),
+        const SnackBar(content: Text("✅ Успешный вход")),
       );
-    } catch (e) {
+    } on FirebaseAuthException catch (e) {
+      String message;
+      // Устанавливаем ошибку прямо в поле ввода
+      if (e.code == 'user-not-found') {
+        _emailErrorText = "Аккаунт не найден.";
+        message = "Пожалуйста, проверьте Email.";
+      } else if (e.code == 'wrong-password') {
+        _passwordErrorText = "Неверный пароль.";
+        message = "Пожалуйста, попробуйте еще раз.";
+      } else {
+        message = "Ошибка: ${e.message}";
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Ошибка: $e")),
+        SnackBar(content: Text(message)),
       );
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
-  Future<void> register() async {
-    try {
-      await auth.createUserWithEmailAndPassword(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Аккаунт создан")),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Ошибка: $e")),
-      );
-    }
-  }
-
-  /// 🔑 Вход через Google (для google_sign_in: ^6.2.1)
-  Future<void> signInWithGoogle() async {
+  Future<void> _signInWithGoogle() async {
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
     try {
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) return; // юзер отменил вход
-
+      if (googleUser == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
       final GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
-
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-
       await auth.signInWithCredential(credential);
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("✅ Успешный вход через Google")),
       );
-    } catch (e) {
+    } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("❌ Ошибка Google входа: $e")),
+        SnackBar(content: Text("❌ Ошибка Google входа: ${e.message}")),
       );
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
-
-
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Login Page")),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            TextField(
-              controller: emailController,
-              decoration: const InputDecoration(labelText: "Email"),
+      appBar: AppBar(title: const Text("Вход")),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: FadeTransition(
+            opacity: _animationController,
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    "Добро пожаловать!",
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 32),
+                  TextFormField(
+                    controller: emailController,
+                    decoration: InputDecoration(
+                      labelText: "Email",
+                      errorText: _emailErrorText,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: const Icon(Icons.email),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Введите Email";
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: passwordController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: "Пароль",
+                      errorText: _passwordErrorText,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: const Icon(Icons.lock),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return "Введите пароль";
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  _isLoading
+                      ? const CircularProgressIndicator()
+                      : SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: _signIn,
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: const Text("Войти"),
+                          ),
+                        ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const RegisterPage()),
+                      );
+                    },
+                    child: const Text("У меня нет аккаунта"),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const ResetPasswordPage()),
+                      );
+                    },
+                    child: const Text("Забыли пароль?"),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.g_mobiledata),
+                      onPressed: _signInWithGoogle,
+                      label: const Text("Войти через Google"),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            TextField(
-              controller: passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: "Пароль"),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: signIn,
-              child: const Text("Войти"),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const RegisterPage()),
-                );
-              },
-              child: const Text("Регистрация"),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const ResetPasswordPage()),
-                );
-              },
-              child: const Text("Забыли пароль?"),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.login),
-              onPressed: signInWithGoogle,
-              label: const Text("Войти через Google"),
-            ),
-          ],
+          ),
         ),
       ),
     );
