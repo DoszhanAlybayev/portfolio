@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "149886283467",
+    "project_id": "finnapp-b93d3",
+    "storage_bucket": "finnapp-b93d3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:149886283467:android:32804dc7fb60868c6bb54e",
+        "android_client_info": {
+          "package_name": "com.example.finnapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "149886283467-8u7c12ksn4ubsicmv2tntfhfiopgeo3e.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.finnapp",
+            "certificate_hash": "dd8ef6f8dcc1b6abd98fb688b8b88d3f8380282f"
+          }
+        },
+        {
+          "client_id": "149886283467-2cis82ll0vgnki36t9eo2j8dugi3hvb9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD5i5rFATstTdpbtUlhD1Ld9tfLSW5zoek"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "149886283467-2cis82ll0vgnki36t9eo2j8dugi3hvb9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "149886283467-nde469jbs25nbnav8jvakhuauhgch8d0.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.finnapp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

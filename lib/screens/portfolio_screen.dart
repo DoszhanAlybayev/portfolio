@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/stock.dart';
 import '../services/price_service.dart';
-import '../services/storage_service.dart';
+import '../services/firestore_service.dart';
 import '../widgets/stock_card.dart';
 import '../widgets/stat_card.dart';
 import 'package:home_widget/home_widget.dart';
@@ -15,7 +16,7 @@ class PortfolioScreen extends StatefulWidget {
 }
 
 class _PortfolioScreenState extends State<PortfolioScreen> {
-  final GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
+  final FirestoreService _firestoreService = FirestoreService();
   List<Stock> portfolio = [];
   Timer? _timer;
   double usdKzt = 541.27;
@@ -23,7 +24,6 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   @override
   void initState() {
     super.initState();
-    _loadPortfolio();
     _updatePrices();
     _timer = Timer.periodic(const Duration(minutes: 1), (timer) {
       _updatePrices();
@@ -35,50 +35,6 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     _timer?.cancel();
     super.dispose();
   }
-  Future<void> _updateWidget() async {
-    await HomeWidget.saveWidgetData(
-      'profit', 
-      '${totalProfit.toStringAsFixed(2)} ₸'
-    );
-    await HomeWidget.updateWidget(
-      name: 'ExampleWidgetProvider',
-      androidName: 'ExampleWidgetProvider',
-    );
-  }
-
-  Future<void> _loadPortfolio() async {
-    final loaded = await StorageService.loadPortfolio();
-
-    setState(() {
-      portfolio = [];
-    });
-
-    for (int i = 0; i < loaded.length; i++) {
-      portfolio.add(loaded[i]);
-      _listKey.currentState?.insertItem(i);
-    }
-  }
-
-  Future<void> _savePortfolio() async {
-    await StorageService.savePortfolio(portfolio);
-  }
-
-  Future<void> _updatePrices() async {
-    try {
-      usdKzt = await PriceService.fetchUsdKzt();
-      for (var stock in portfolio) {
-        double price = await PriceService.fetchPrice(stock.url);
-        stock.currentPrice = stock.ticker.toUpperCase() == 'TQQQ' ? price * usdKzt : price;
-      }
-      setState(() {});
-      await _savePortfolio();
-
-      // Обновляем виджет после обновления цен
-      await _updateWidget();
-    } catch (e) {
-      print('Ошибка при обновлении цен: $e');
-    }
-  }
 
   double get totalProfit =>
       portfolio.fold(0, (sum, stock) => sum + stock.profitKZT);
@@ -87,12 +43,31 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   double get averagePercent =>
       totalBuy > 0 ? (totalProfit / totalBuy) * 100 : 0;
 
-  Future<void> updateHomeWidget(double totalProfit) async {
-    await HomeWidget.saveWidgetData('profit', '${totalProfit.toStringAsFixed(2)} ₸');
+  Future<void> _updateWidget() async {
+    await HomeWidget.saveWidgetData(
+      'profit',
+      '${totalProfit.toStringAsFixed(2)} ₸',
+    );
     await HomeWidget.updateWidget(
       name: 'ExampleWidgetProvider',
       androidName: 'ExampleWidgetProvider',
     );
+  }
+
+  Future<void> _updatePrices() async {
+    try {
+      usdKzt = await PriceService.fetchUsdKzt();
+      for (var stock in portfolio) {
+        double price = await PriceService.fetchPrice(stock.url);
+        stock.currentPrice =
+            stock.ticker.toUpperCase() == 'TQQQ' ? price * usdKzt : price;
+        await _firestoreService.updateStock(stock); // сохраняем новые цены
+      }
+      setState(() {});
+      await _updateWidget();
+    } catch (e) {
+      print('Ошибка при обновлении цен: $e');
+    }
   }
 
   void _addStockDialog() {
@@ -116,19 +91,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Отмена"),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Отмена")),
             ElevatedButton(
-              onPressed: () {
-                if (tickerController.text.isEmpty ||
-                    urlController.text.isEmpty ||
-                    quantityController.text.isEmpty ||
-                    buyPriceController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Заполни все поля")),
-                  );
+              onPressed: () async {
+                if (tickerController.text.isEmpty || urlController.text.isEmpty || quantityController.text.isEmpty || buyPriceController.text.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Заполни все поля")));
                   return;
                 }
 
@@ -140,15 +107,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   currentPrice: double.parse(buyPriceController.text),
                 );
 
-                setState(() {
-                  portfolio.add(stock);
-                  _listKey.currentState?.insertItem(portfolio.length - 1);
-                });
-                _savePortfolio();
-                _updateWidget(); // обновляем виджет после добавления
+                await _firestoreService.addStock(stock);
                 Navigator.pop(ctx);
               },
-
               child: const Text("Добавить"),
             ),
           ],
@@ -175,52 +136,13 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
               ListTile(
                 leading: const Icon(Icons.delete, color: Colors.red),
                 title: const Text("Удалить"),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
-                  _confirmDelete(stock, index);
+                  await _firestoreService.deleteStock(stock);
                 },
               ),
             ],
           ),
-        );
-      },
-    );
-  }
-
-  void _confirmDelete(Stock stock, int index) {
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text("Подтверждение"),
-          content: Text("Удалить ${stock.ticker}?"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Отмена"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                setState(() {
-                  portfolio.removeAt(index);
-                  _listKey.currentState?.removeItem(
-                    index,
-                    (context, anim) => StockCard(
-                      stock: stock,
-                      index: index,
-                      animation: anim,
-                      onLongPress: _showStockOptions,
-                    ),
-                    duration: const Duration(milliseconds: 300),
-                  );
-                });
-                _savePortfolio();
-                _updateWidget(); 
-              },
-              child: const Text("Удалить"),
-            ),
-          ],
         );
       },
     );
@@ -239,29 +161,16 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text("Добавить новую покупку:"),
-              TextField(
-                controller: quantityController,
-                decoration: const InputDecoration(labelText: "Количество"),
-                keyboardType: TextInputType.number,
-              ),
-              TextField(
-                controller: priceController,
-                decoration: const InputDecoration(labelText: "Цена за 1 акцию (₸)"),
-                keyboardType: TextInputType.number,
-              ),
+              TextField(controller: quantityController, decoration: const InputDecoration(labelText: "Количество"), keyboardType: TextInputType.number),
+              TextField(controller: priceController, decoration: const InputDecoration(labelText: "Цена за 1 акцию (₸)"), keyboardType: TextInputType.number),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Отмена"),
-            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Отмена")),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 if (quantityController.text.isEmpty || priceController.text.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Заполни все поля")),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Заполни все поля")));
                   return;
                 }
 
@@ -275,9 +184,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 stock.buyPrice = (totalOld + totalNew) / newQuantity;
                 stock.quantity = newQuantity;
 
-                setState(() {});
-                _savePortfolio();
-                _updateWidget(); 
+                await _firestoreService.updateStock(stock);
                 Navigator.pop(ctx);
               },
               child: const Text("Сохранить"),
@@ -288,9 +195,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     );
   }
 
-  Future<void> _onRefresh() async {
-    await _updatePrices();
-  }
+  Future<void> _onRefresh() async => await _updatePrices();
 
   @override
   Widget build(BuildContext context) {
@@ -298,49 +203,61 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       appBar: AppBar(
         title: const Text("Мой портфель"),
         centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              StatCard(
-                title: "Доход",
-                value: "${totalProfit.toStringAsFixed(2)} ₸",
-                color: totalProfit >= 0 ? Colors.green : Colors.red,
-              ),
-              StatCard(
-                title: "Средний %",
-                value: "${averagePercent.toStringAsFixed(2)} %",
-                color: averagePercent >= 0 ? Colors.green : Colors.red,
-              ),
-              StatCard(
-                title: "USD/KZT",
-                value: usdKzt.toStringAsFixed(2),
-                color: Colors.indigo,
-              ),
-            ],
-          ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _onRefresh,
-              child: AnimatedList(
-                key: _listKey,
-                initialItemCount: portfolio.length,
-                itemBuilder: (context, index, animation) {
-                  final stock = portfolio[index];
-                  return StockCard(
-                    stock: stock,
-                    index: index,
-                    animation: animation,
-                    onLongPress: _showStockOptions,
-                  );
-                },
-              ),
-            ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Вы вышли из аккаунта")));
+              }
+            },
           ),
         ],
+      ),
+      body: StreamBuilder<List<Stock>>(
+        stream: _firestoreService.portfolioStream(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasData) {
+            portfolio = snapshot.data!;
+            return Column(
+              children: [
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    StatCard(title: "Доход", value: "${totalProfit.toStringAsFixed(2)} ₸", color: totalProfit >= 0 ? Colors.green : Colors.red),
+                    StatCard(title: "Средний %", value: "${averagePercent.toStringAsFixed(2)} %", color: averagePercent >= 0 ? Colors.green : Colors.red),
+                    StatCard(title: "USD/KZT", value: usdKzt.toStringAsFixed(2), color: Colors.indigo),
+                  ],
+                ),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: _onRefresh,
+                    child: ListView.builder(
+                      itemCount: portfolio.length,
+                      itemBuilder: (context, index) {
+                        final stock = portfolio[index];
+                        return StockCard(
+                          stock: stock,
+                          index: index,
+                          animation: AlwaysStoppedAnimation(1.0),
+                          onLongPress: (s, i) => _showStockOptions(s, i),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return const Center(child: Text("Портфель пуст"));
+        },
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _addStockDialog,

@@ -1,4 +1,5 @@
 class Stock {
+  String id; // Firestore document id
   String ticker;
   String url;
   int quantity;
@@ -6,6 +7,7 @@ class Stock {
   double currentPrice;
 
   Stock({
+    this.id = '', // по умолчанию пусто, присваивается Firestore
     required this.ticker,
     required this.url,
     required this.quantity,
@@ -25,7 +27,8 @@ class Stock {
         "currentPrice": currentPrice,
       };
 
-  factory Stock.fromJson(Map<String, dynamic> json) => Stock(
+  factory Stock.fromJson(Map<String, dynamic> json, {String? id}) => Stock(
+        id: id ?? '',
         ticker: json["ticker"],
         url: json["url"],
         quantity: json["quantity"],
